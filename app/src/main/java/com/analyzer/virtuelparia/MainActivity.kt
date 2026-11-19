@@ -4,30 +4,24 @@ package com.analyzer.virtuelparia
 import android.app.Activity
 import android.os.Bundle
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.net.Uri
 import android.graphics.Color
 import android.view.Gravity
-import android.view.ViewGroup
 import android.widget.*
 import android.graphics.Typeface
+import org.json.JSONObject
 
 class MainActivity : Activity() {
 
-    private lateinit var imageAnalyzer: ImageAnalyzer
-    private lateinit var aiAnalysis: AIAnalysis
-
-    private var selectedBitmap: Bitmap? = null
+    private var selectedUri: Uri? = null
 
     private lateinit var status: TextView
     private lateinit var result: TextView
     private lateinit var imageInfo: TextView
+    private lateinit var analyzeButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        imageAnalyzer = ImageAnalyzer(this)
-        aiAnalysis = AIAnalysis(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -55,7 +49,7 @@ class MainActivity : Activity() {
         }
 
         status = TextView(this).apply {
-            text = "● IA ANALYZER : PRÊT"
+            text = "● IA SERVER : CONNECTÉ"
             textSize = 16f
             gravity = Gravity.CENTER
             setTextColor(Color.GREEN)
@@ -73,16 +67,12 @@ class MainActivity : Activity() {
             setPadding(0, 12, 0, 12)
         }
 
-        val analyzeButton = Button(this).apply {
+        analyzeButton = Button(this).apply {
             text = "🔍 ANALYSER AVEC IA"
         }
 
-        val historyButton = Button(this).apply {
-            text = "📊 VOIR L'HISTORIQUE"
-        }
-
         val resultTitle = TextView(this).apply {
-            text = "RÉSULTAT D'ANALYSE"
+            text = "RÉSULTAT D'ANALYSE IA"
             textSize = 21f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -97,18 +87,17 @@ class MainActivity : Activity() {
                 X = -- %
 
                 V2 = -- %
-                
+
                 EN ATTENTE D'ANALYSE
             """.trimIndent()
-
-            textSize = 19f
+            textSize = 18f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setPadding(15, 20, 15, 20)
         }
 
         val notice = TextView(this).apply {
-            text = "Les résultats sont des estimations et ne garantissent pas le résultat du match."
+            text = "Les probabilités sont des estimations basées sur les informations visibles. Elles ne garantissent pas le résultat du match."
             textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(Color.LTGRAY)
@@ -123,7 +112,6 @@ class MainActivity : Activity() {
         root.addView(analyzeButton)
         root.addView(resultTitle)
         root.addView(result)
-        root.addView(historyButton)
         root.addView(notice)
 
         setContentView(scroll)
@@ -138,25 +126,6 @@ class MainActivity : Activity() {
         analyzeButton.setOnClickListener {
             analyzeScreenshot()
         }
-
-        historyButton.setOnClickListener {
-            val history = HistoryManager(this).getHistory()
-            result.text = if (history.length() == 0) {
-                "AUCUN HISTORIQUE DISPONIBLE"
-            } else {
-                buildString {
-                    append("HISTORIQUE DES ANALYSES\n\n")
-                    for (i in history.length() - 1 downTo 0) {
-                        val item = history.getJSONObject(i)
-                        append("Analyse ${i + 1}\n")
-                        append("V1 = ${item.optDouble("v1")} %\n")
-                        append("X = ${item.optDouble("draw")} %\n")
-                        append("V2 = ${item.optDouble("v2")} %\n")
-                        append("Tendance : ${item.optString("prediction")}\n\n")
-                    }
-                }
-            }
-        }
     }
 
     override fun onActivityResult(
@@ -167,32 +136,22 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == 100 && resultCode == RESULT_OK) {
-            val uri = data?.data ?: return
+            selectedUri = data?.data
 
-            try {
-                val stream = contentResolver.openInputStream(uri)
-                selectedBitmap = stream?.use {
-                    BitmapFactory.decodeStream(it)
-                }
-
-                if (selectedBitmap != null) {
-                    imageInfo.text = "✓ CAPTURE D'ÉCRAN IMPORTÉE"
-                    status.text = "● IMAGE PRÊTE POUR ANALYSE"
-                } else {
-                    imageInfo.text = "Impossible de lire cette image."
-                }
-
-            } catch (e: Exception) {
-                imageInfo.text = "Erreur lors de l'importation."
+            if (selectedUri != null) {
+                imageInfo.text = "✓ CAPTURE D'ÉCRAN IMPORTÉE"
+                status.text = "● IMAGE PRÊTE POUR L'IA"
+            } else {
+                imageInfo.text = "Impossible de sélectionner l'image."
             }
         }
     }
 
     private fun analyzeScreenshot() {
 
-        val bitmap = selectedBitmap
+        val uri = selectedUri
 
-        if (bitmap == null) {
+        if (uri == null) {
             Toast.makeText(
                 this,
                 "Veuillez importer une capture d'écran.",
@@ -201,28 +160,108 @@ class MainActivity : Activity() {
             return
         }
 
-        status.text = "● ANALYSE EN COURS..."
-        result.text = "Lecture de la capture d'écran..."
+        status.text = "● CONNEXION AU SERVEUR IA..."
+        result.text = "Envoi de la capture et analyse en cours..."
+        analyzeButton.isEnabled = false
 
-        imageAnalyzer.analyze(
-            bitmap,
-            onResult = { extractedText ->
+        ServerApi.analyzeImage(
+            context = this,
+            imageUri = uri,
 
-                val analysis = aiAnalysis.analyzeText(extractedText)
+            onSuccess = { jsonResult ->
 
-                result.text = analysis
-                status.text = "● ANALYSE TERMINÉE"
+                try {
+                    val data = JSONObject(jsonResult)
 
+                    val team1 = data.optString(
+                        "team_v1", "Non détectée"
+                    )
+                    val team2 = data.optString(
+                        "team_v2", "Non détectée"
+                    )
+                    val tournament = data.optString(
+                        "tournament", "Non détecté"
+                    )
+
+                    result.text = """
+                        ⚽ MATCH ANALYSÉ
+
+                        $team1  VS  $team2
+
+                        TOURNOI :
+                        $tournament
+
+                        ━━━━━━━━━━━━━━━
+
+                        COTES DÉTECTÉES
+
+                        V1 : ${showValue(data, "odds_v1")}
+                        X  : ${showValue(data, "odds_x")}
+                        V2 : ${showValue(data, "odds_v2")}
+
+                        ━━━━━━━━━━━━━━━
+
+                        PROBABILITÉS ESTIMÉES
+
+                        V1 : ${showValue(data, "probability_v1")} %
+                        X  : ${showValue(data, "probability_x")} %
+                        V2 : ${showValue(data, "probability_v2")} %
+
+                        ━━━━━━━━━━━━━━━
+
+                        ANALYSE IA :
+
+                        ${data.optString("analysis", "Aucune analyse disponible")}
+
+                        CONFIANCE :
+                        ${data.optString("confidence", "Non précisée")}
+
+                        ANALYSE COMPLÈTE :
+                        ${if (data.optBoolean("complete")) "OUI" else "NON"}
+                    """.trimIndent()
+
+                    status.text = "● ANALYSE IA TERMINÉE"
+                    status.setTextColor(Color.GREEN)
+
+                } catch (e: Exception) {
+                    result.text = "Erreur de lecture de la réponse IA : ${e.message}"
+                    status.text = "● ERREUR"
+                }
+
+                analyzeButton.isEnabled = true
             },
-            onError = {
-                result.text = "Erreur pendant la lecture de l'image."
-                status.text = "● ERREUR D'ANALYSE"
+
+            onError = { error ->
+
+                result.text = """
+                    IMPOSSIBLE D'ANALYSER
+
+                    $error
+
+                    Vérifiez votre connexion Internet
+                    et réessayez.
+                """.trimIndent()
+
+                status.text = "● ERREUR SERVEUR"
+                status.setTextColor(Color.RED)
+                analyzeButton.isEnabled = true
             }
         )
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        imageAnalyzer.close()
+    private fun showValue(
+        data: JSONObject,
+        key: String
+    ): String {
+        val value = data.opt(key)
+
+        return if (value == null ||
+            value == JSONObject.NULL ||
+            value.toString() == ""
+        ) {
+            "--"
+        } else {
+            value.toString()
+        }
     }
 }

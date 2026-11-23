@@ -1,11 +1,12 @@
 
 import os
 import json
-import base64
 import logging
+import re
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("analyzer")
@@ -15,12 +16,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-api_key = os.environ.get("OPENAI_API_KEY")
+api_key = os.environ.get("GEMINI_API_KEY")
 
 if not api_key:
-    logger.error("OPENAI_API_KEY is missing from environment variables")
+    logger.error("GEMINI_API_KEY is missing from environment variables")
 
-client = OpenAI(api_key=api_key) if api_key else None
+client = genai.Client(api_key=api_key) if api_key else None
 
 
 @app.get("/")
@@ -42,7 +43,7 @@ async def analyze(image: UploadFile = File(...)):
     if client is None:
         raise HTTPException(
             status_code=500,
-            detail="OPENAI_API_KEY manquant sur Render"
+            detail="GEMINI_API_KEY manquant sur Render"
         )
 
     allowed = ["image/png", "image/jpeg", "image/webp"]
@@ -67,9 +68,6 @@ async def analyze(image: UploadFile = File(...)):
             detail="Image trop volumineuse"
         )
 
-    encoded = base64.b64encode(data).decode("utf-8")
-    image_url = f"data:{image.content_type};base64,{encoded}"
-
     prompt = """
 Tu es un assistant d'analyse de captures de matchs
 de football virtuel.
@@ -85,43 +83,49 @@ Calcule les probabilités implicites normalisées
 si les trois cotes sont valides.
 
 Ces probabilités ne garantissent pas le résultat réel.
+Le football virtuel peut comporter des résultats
+imprévisibles. Ne prétends jamais connaître le résultat
+à l'avance.
 
-Réponds uniquement avec un objet JSON contenant :
+Réponds uniquement avec un objet JSON valide contenant :
 team_v1, team_v2, tournament,
 odds_v1, odds_x, odds_v2,
 probability_v1, probability_x, probability_v2,
 analysis, confidence, complete.
 
 Utilise null pour les valeurs inconnues.
+Les cotes et probabilités doivent être des nombres
+ou null. confidence doit être un nombre ou null.
+complete doit être true ou false.
 """
 
     try:
-        logger.info("Début de l'analyse IA")
+        logger.info("Début de l'analyse avec Gemini")
 
-        response = client.responses.create(
-            model="gpt-5.5",
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": prompt
-                        },
-                        {
-                            "type": "input_image",
-                            "image_url": image_url,
-                            "detail": "high"
-                        }
-                    ]
-                }
-            ]
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                prompt,
+                types.Part.from_bytes(
+                    data=data,
+                    mime_type=image.content_type
+                )
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
         )
 
-        output = response.output_text
+        output = response.text
 
         if not output:
-            raise ValueError("Réponse vide de l'IA")
+            raise ValueError("Réponse vide de Gemini")
+
+        output = output.strip()
+
+        # Nettoyer les éventuelles balises Markdown
+        output = re.sub(r"^```(?:json)?\s*", "", output)
+        output = re.sub(r"\s*```$", "", output)
 
         result = json.loads(output)
 
@@ -134,7 +138,7 @@ Utilise null pour les valeurs inconnues.
         }
 
     except Exception as error:
-        logger.exception("ERREUR PENDANT L'ANALYSE IA")
+        logger.exception("ERREUR PENDANT L'ANALYSE GEMINI")
 
         raise HTTPException(
             status_code=500,

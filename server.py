@@ -103,7 +103,7 @@ complete doit être true ou false.
         logger.info("Début de l'analyse avec Gemini")
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=[
                 prompt,
                 types.Part.from_bytes(
@@ -123,7 +123,6 @@ complete doit être true ou false.
 
         output = output.strip()
 
-        # Nettoyer les éventuelles balises Markdown
         output = re.sub(r"^```(?:json)?\s*", "", output)
         output = re.sub(r"\s*```$", "", output)
 

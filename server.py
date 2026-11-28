@@ -82,10 +82,10 @@ Ne devine jamais une cote manquante ou illisible.
 Calcule les probabilités implicites normalisées
 si les trois cotes sont valides.
 
-Ces probabilités ne garantissent pas le résultat réel.
-Le football virtuel peut comporter des résultats
-imprévisibles. Ne prétends jamais connaître le résultat
-à l'avance.
+Ces probabilités sont des estimations et ne garantissent
+jamais le résultat réel d'un match virtuel.
+
+Ne prétends jamais connaître le résultat à l'avance.
 
 Réponds uniquement avec un objet JSON valide contenant :
 team_v1, team_v2, tournament,
@@ -103,7 +103,7 @@ complete doit être true ou false.
         logger.info("Début de l'analyse avec Gemini")
 
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-3.5-flash-lite",
             contents=[
                 prompt,
                 types.Part.from_bytes(
